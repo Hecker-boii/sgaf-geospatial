@@ -299,13 +299,30 @@ async function checkStatus(datasetId) {
 }
 
 function updateStatusDisplay(data) {
-    document.getElementById('datasetId').textContent = data.datasetId || '-';
+    const datasetIdEl = document.getElementById('datasetId');
     const statusEl = document.getElementById('status');
-    statusEl.textContent = data.status || '-';
-    statusEl.className = `status-badge ${data.status || ''}`;
-    document.getElementById('fileName').textContent = data.fileName || '-';
-    document.getElementById('createdAt').textContent = data.createdAt ? 
-        new Date(data.createdAt).toLocaleString() : '-';
+    const fileNameEl = document.getElementById('fileName');
+    const createdAtEl = document.getElementById('createdAt');
+    
+    if (datasetIdEl) datasetIdEl.textContent = data.datasetId || '-';
+    if (statusEl) {
+        const status = data.status || '-';
+        statusEl.textContent = status;
+        statusEl.className = `status-badge ${status}`;
+        
+        // Update processing indicator based on status
+        const processingIndicator = document.getElementById('processingIndicator');
+        if (status === 'PROCESSING' || status === 'PENDING') {
+            if (processingIndicator) processingIndicator.style.display = 'block';
+        } else if (status === 'COMPLETED' || status === 'FAILED') {
+            if (processingIndicator) processingIndicator.style.display = 'none';
+        }
+    }
+    if (fileNameEl) fileNameEl.textContent = data.fileName || '-';
+    if (createdAtEl) {
+        createdAtEl.textContent = data.createdAt ? 
+            new Date(data.createdAt).toLocaleString() : '-';
+    }
 }
 
 function showResults(result) {
