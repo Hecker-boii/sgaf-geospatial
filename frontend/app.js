@@ -216,7 +216,7 @@ async function checkStatus(datasetId) {
         }
 
         const data = await response.json();
-        console.log('Status check response:', data); // Debug log
+        console.log('Status check response:', JSON.stringify(data, null, 2)); // Debug log
         
         // Update status display immediately
         updateStatusDisplay(data);
@@ -226,16 +226,54 @@ async function checkStatus(datasetId) {
         let resultData = null;
         
         if (data.result) {
+            console.log('Result structure:', JSON.stringify(data.result, null, 2)); // Debug
+            
             // Check if result has summary directly
             if (data.result.summary) {
                 hasResults = true;
                 resultData = data.result;
+                console.log('Found results with summary structure');
             }
-            // Check if result itself is the summary
-            else if (data.result.pointCount !== undefined || data.result.polygonCount !== undefined) {
+            // Check if result itself is the summary (has pointCount or polygonCount)
+            else if (data.result.pointCount !== undefined || data.result.polygonCount !== undefined || 
+                     (data.result.M && data.result.M.summary)) {
                 hasResults = true;
-                resultData = { summary: data.result };
+                // Handle DynamoDB format if needed
+                if (data.result.M && data.result.M.summary) {
+                    // Convert DynamoDB format
+                    resultData = { summary: convertDynamoDBFormat(data.result.M.summary) };
+                } else {
+                    resultData = { summary: data.result };
+                }
+                console.log('Found results with direct summary data');
             }
+            // Check for nested M (DynamoDB map format)
+            else if (data.result.M) {
+                if (data.result.M.summary) {
+                    hasResults = true;
+                    resultData = { summary: convertDynamoDBFormat(data.result.M.summary) };
+                    console.log('Found results in DynamoDB M format');
+                }
+            }
+        }
+        
+        // Helper function to convert DynamoDB format
+        function convertDynamoDBFormat(obj) {
+            if (!obj || typeof obj !== 'object') return obj;
+            if (obj.M) {
+                // It's a DynamoDB map, convert recursively
+                const result = {};
+                for (const [key, value] of Object.entries(obj.M)) {
+                    if (value.S) result[key] = value.S;
+                    else if (value.N) result[key] = parseFloat(value.N);
+                    else if (value.BOOL !== undefined) result[key] = value.BOOL;
+                    else if (value.L) result[key] = value.L.map(item => convertDynamoDBFormat(item));
+                    else if (value.M) result[key] = convertDynamoDBFormat(value);
+                    else result[key] = value;
+                }
+                return result;
+            }
+            return obj;
         }
 
         // Show results immediately when available

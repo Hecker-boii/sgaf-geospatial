@@ -103,6 +103,20 @@ def handle_status(dataset_id: str) -> Dict[str, Any]:
             return error_response(404, "Job not found")
         
         item = response["Item"]
+        
+        # Extract result and ensure it's properly formatted
+        result = item.get("result")
+        if result and isinstance(result, dict):
+            # Ensure result structure is clean for frontend
+            # Handle nested summary if needed
+            if "summary" in result and isinstance(result["summary"], dict):
+                # Result already has summary, use as is
+                pass
+            elif "M" in result and "summary" in result["M"]:
+                # DynamoDB format - convert
+                import json
+                result = json.loads(json.dumps(result, default=str))
+        
         return cors_response({
             "datasetId": dataset_id,
             "status": item.get("status", "UNKNOWN"),
@@ -110,7 +124,7 @@ def handle_status(dataset_id: str) -> Dict[str, Any]:
             "fileType": item.get("fileType"),
             "createdAt": item.get("createdAt"),
             "updatedAt": item.get("updatedAt"),
-            "result": item.get("result"),
+            "result": result,
             "error": item.get("error"),
         })
     except Exception as e:
