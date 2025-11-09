@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SGAF - Serverless Geospatial Analysis Framework</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Animated Background -->
+        <div class="animated-bg">
+            <div class="bg-shape shape-1"></div>
+            <div class="bg-shape shape-2"></div>
+            <div class="bg-shape shape-3"></div>
+        </div>
+
+        <!-- Header -->
+        <header class="main-header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <div class="logo-icon">🌍</div>
+                    <div>
+                        <h1>SGAF</h1>
+                        <p class="tagline">Serverless Geospatial Analysis Framework</p>
+                    </div>
+                </div>
+                <div class="header-stats">
+                    <div class="stat-item">
+                        <span class="stat-value" id="totalJobs">0</span>
+                        <span class="stat-label">Total Jobs</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="activeJobs">0</span>
+                        <span class="stat-label">Active</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Upload Section -->
+            <section class="card upload-card">
+                <div class="card-header">
+                    <h2>
+                        <span class="icon">📤</span>
+                        Upload Geospatial Data
+                    </h2>
+                    <p class="card-description">Upload GeoJSON or GeoTIFF files for serverless processing</p>
+                </div>
+                
+                <div class="upload-area" id="uploadArea">
+                    <input type="file" id="fileInput" accept=".geojson,.json,.tif,.tiff,.geotiff" style="display: none;">
+                    <div class="upload-content">
+                        <div class="upload-icon">
+                            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                        </div>
+                        <h3>Drag & Drop Your File</h3>
+                        <p>or <span class="click-here">click here to browse</span></p>
+                        <p class="file-types">Supports: .geojson, .json, .tif, .tiff, .geotiff (Max 1MB)</p>
+                    </div>
+                    <div class="upload-progress" id="uploadProgress" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <p class="progress-text" id="progressText">Uploading...</p>
+                    </div>
+                </div>
+                
+                <div id="uploadStatus" class="status-message"></div>
+                <button id="uploadBtn" class="btn btn-primary" disabled>
+                    <span class="btn-icon">🚀</span>
+                    <span>Upload & Process</span>
+                </button>
+            </section>
+
+            <!-- Job Status Section -->
+            <section class="card status-card" id="statusSection" style="display: none;">
+                <div class="card-header">
+                    <h2>
+                        <span class="icon">📊</span>
+                        Job Status
+                    </h2>
+                    <button id="refreshBtn" class="btn-icon-only" title="Refresh">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span class="status-label">Dataset ID</span>
+                        <span id="datasetId" class="status-value code">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Status</span>
+                        <span id="status" class="status-badge">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">File Name</span>
+                        <span id="fileName" class="status-value">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Created</span>
+                        <span id="createdAt" class="status-value">-</span>
+                    </div>
+                </div>
+
+                <!-- Processing Animation -->
+                <div class="processing-indicator" id="processingIndicator" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Processing your geospatial data...</p>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section class="card results-card" id="resultsSection" style="display: none;">
+                <div class="card-header">
+                    <h2>
+                        <span class="icon">✨</span>
+                        Analysis Results
+                    </h2>
+                </div>
+                <div id="results" class="results-content">
+                    <!-- Results will be populated here -->
+                </div>
+            </section>
+
+            <!-- Jobs List Section -->
+            <section class="card jobs-card">
+                <div class="card-header">
+                    <h2>
+                        <span class="icon">📋</span>
+                        Recent Jobs
+                    </h2>
+                    <button id="refreshJobsBtn" class="btn-icon-only" title="Refresh">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div id="jobsList" class="jobs-list">
+                    <div class="loading-state">
+                        <div class="spinner-small"></div>
+                        <p>Loading jobs...</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="main-footer">
+            <p>Powered by <strong>14+ AWS Serverless Services</strong> | Free Tier Compatible</p>
+            <p class="footer-links">
+                <a href="#" onclick="showAbout()">About</a> • 
+                <a href="#" onclick="showHelp()">Help</a>
+            </p>
+        </footer>
+
+        <!-- Toast Notifications -->
+        <div id="toastContainer" class="toast-container"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

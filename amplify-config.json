@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "frontend": {
+    "build": {
+      "commands": []
+    },
+    "publish": {
+      "directory": "frontend",
+      "ignore": [
+        "node_modules",
+        ".git"
+      ]
+    }
+  }
+}

@@ -1,0 +1,43 @@
+# CDK
+cdk.out/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AWS
+.aws-sam/
+*.zip
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
