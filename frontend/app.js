@@ -1,5 +1,12 @@
 // Configuration
-const API_URL = 'https://pkj2v7ecf3.execute-api.us-east-1.amazonaws.com/prod/';
+const API_URL = 'https://pkj2v7ecf3.execute-api.us-east-1.amazonaws.com/prod';
+
+// Helper to build API URLs correctly
+function getApiUrl(path) {
+    const base = API_URL.replace(/\/$/, ''); // Remove trailing slash
+    const cleanPath = path.startsWith('/') ? path : '/' + path;
+    return base + cleanPath;
+}
 
 // State
 let currentDatasetId = null;
@@ -202,18 +209,32 @@ function startStatusPolling(datasetId) {
     }, 1000);
 }
 
+// Track consecutive errors to prevent spam
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 3;
+
 async function checkStatus(datasetId) {
     try {
-        const response = await fetch(`${API_URL}status/${datasetId}`, {
+        const response = await fetch(getApiUrl(`/status/${datasetId}`), {
             cache: 'no-cache',
             headers: {
                 'Cache-Control': 'no-cache',
                 'Pragma': 'no-cache'
-            }
+            },
+            signal: AbortSignal.timeout(10000) // 10 second timeout
         });
+        
         if (!response.ok) {
-            throw new Error('Failed to fetch status');
+            if (response.status === 404) {
+                // Job not found yet, this is normal during processing
+                consecutiveErrors = 0;
+                return;
+            }
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+        
+        // Reset error counter on success
+        consecutiveErrors = 0;
 
         const data = await response.json();
         console.log('Status check response:', JSON.stringify(data, null, 2)); // Debug log
@@ -339,8 +360,24 @@ async function checkStatus(datasetId) {
             }
         }
     } catch (error) {
+        consecutiveErrors++;
         console.error('Error checking status:', error);
-        showToast('Error checking status: ' + error.message, 'error');
+        
+        // Only show error if it's a real network error and not just 404
+        if (consecutiveErrors <= MAX_CONSECUTIVE_ERRORS) {
+            if (error.name === 'AbortError') {
+                console.warn('Request timeout - will retry');
+                // Don't show toast for timeout, just retry
+            } else if (!error.message.includes('404')) {
+                // Only show error for non-404 errors and limit spam
+                if (consecutiveErrors === 1) {
+                    showToast('Checking status...', 'success');
+                } else if (consecutiveErrors === MAX_CONSECUTIVE_ERRORS) {
+                    showToast('Connection issue. Retrying...', 'error');
+                }
+            }
+        }
+        // Don't spam errors after max attempts
     }
 }
 
@@ -366,8 +403,28 @@ function updateStatusDisplay(data) {
     }
     if (fileNameEl) fileNameEl.textContent = data.fileName || '-';
     if (createdAtEl) {
-        createdAtEl.textContent = data.createdAt ? 
-            new Date(data.createdAt).toLocaleString() : '-';
+        // Fix time display - handle both ISO strings and timestamps
+        let displayTime = '-';
+        if (data.createdAt) {
+            try {
+                const date = new Date(data.createdAt);
+                if (!isNaN(date.getTime())) {
+                    displayTime = date.toLocaleString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        timeZoneName: 'short'
+                    });
+                }
+            } catch (e) {
+                console.error('Error parsing date:', e);
+                displayTime = data.createdAt; // Fallback to raw value
+            }
+        }
+        createdAtEl.textContent = displayTime;
     }
 }
 
@@ -549,9 +606,13 @@ async function loadJobsList() {
     jobsList.innerHTML = '<div class="loading-state"><div class="spinner-small"></div><p>Loading jobs...</p></div>';
 
     try {
-        const response = await fetch(`${API_URL}jobs`);
+        const response = await fetch(getApiUrl('/jobs'), {
+            cache: 'no-cache',
+            signal: AbortSignal.timeout(10000)
+        });
+        
         if (!response.ok) {
-            throw new Error('Failed to fetch jobs');
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
         const data = await response.json();
@@ -559,7 +620,12 @@ async function loadJobsList() {
         displayJobsList(jobs);
         updateStats();
     } catch (error) {
-        jobsList.innerHTML = `<div class="loading-state"><p style="color: var(--error);">Error loading jobs: ${error.message}</p></div>`;
+        if (error.name === 'AbortError') {
+            jobsList.innerHTML = '<div class="loading-state"><p>Request timeout. Please refresh.</p></div>';
+        } else {
+            console.error('Error loading jobs:', error);
+            jobsList.innerHTML = '<div class="loading-state"><p>Unable to load jobs. Please try again.</p></div>';
+        }
     }
 }
 
@@ -626,9 +692,32 @@ function updateStats() {
     document.getElementById('activeJobs').textContent = activeJobs;
 }
 
-// Toast notifications
+// Toast notifications - prevent spam
+let lastToastMessage = '';
+let lastToastTime = 0;
+const TOAST_COOLDOWN = 2000; // 2 seconds between same message
+
 function showToast(message, type = 'success') {
+    const now = Date.now();
+    
+    // Prevent spam - don't show same message within cooldown period
+    if (message === lastToastMessage && (now - lastToastTime) < TOAST_COOLDOWN) {
+        return;
+    }
+    
+    lastToastMessage = message;
+    lastToastTime = now;
+    
     const container = document.getElementById('toastContainer');
+    
+    // Remove old toasts if too many
+    const existingToasts = container.children;
+    if (existingToasts.length > 3) {
+        Array.from(existingToasts).slice(0, existingToasts.length - 3).forEach(toast => {
+            toast.remove();
+        });
+    }
+    
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
@@ -638,7 +727,9 @@ function showToast(message, type = 'success') {
     setTimeout(() => {
         toast.style.animation = 'toastSlideIn 0.3s ease-out reverse';
         setTimeout(() => {
-            container.removeChild(toast);
+            if (toast.parentNode) {
+                container.removeChild(toast);
+            }
         }, 300);
     }, 3000);
 }
