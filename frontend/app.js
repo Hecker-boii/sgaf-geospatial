@@ -257,19 +257,23 @@ async function checkStatus(datasetId) {
             }
         }
         
-        // Helper function to convert DynamoDB format
+        // Helper function to convert DynamoDB format (if needed)
         function convertDynamoDBFormat(obj) {
             if (!obj || typeof obj !== 'object') return obj;
             if (obj.M) {
                 // It's a DynamoDB map, convert recursively
                 const result = {};
                 for (const [key, value] of Object.entries(obj.M)) {
-                    if (value.S) result[key] = value.S;
-                    else if (value.N) result[key] = parseFloat(value.N);
-                    else if (value.BOOL !== undefined) result[key] = value.BOOL;
-                    else if (value.L) result[key] = value.L.map(item => convertDynamoDBFormat(item));
-                    else if (value.M) result[key] = convertDynamoDBFormat(value);
-                    else result[key] = value;
+                    if (value && typeof value === 'object') {
+                        if (value.S !== undefined) result[key] = value.S;
+                        else if (value.N !== undefined) result[key] = parseFloat(value.N);
+                        else if (value.BOOL !== undefined) result[key] = value.BOOL;
+                        else if (value.L !== undefined) result[key] = value.L.map(item => convertDynamoDBFormat(item));
+                        else if (value.M !== undefined) result[key] = convertDynamoDBFormat(value);
+                        else result[key] = value;
+                    } else {
+                        result[key] = value;
+                    }
                 }
                 return result;
             }
@@ -280,13 +284,13 @@ async function checkStatus(datasetId) {
         if (hasResults && resultData) {
             document.getElementById('processingIndicator').style.display = 'none';
             showResults(resultData);
-            if (data.status !== 'COMPLETED') {
-                showToast('Results available! Processing may still be completing...', 'success');
-            }
+            console.log('Results displayed successfully');
         }
 
         // Handle completion or failure
         if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+            console.log('Status is COMPLETED or FAILED, stopping polling');
+            
             // Clear all intervals immediately
             if (statusCheckInterval) {
                 clearInterval(statusCheckInterval);
@@ -300,17 +304,18 @@ async function checkStatus(datasetId) {
             document.getElementById('processingIndicator').style.display = 'none';
 
             if (data.status === 'COMPLETED') {
-                // Show results if we have them
+                // Always try to show results when completed
                 if (hasResults && resultData) {
                     showResults(resultData);
                     showToast('✅ Processing completed successfully! Results displayed below.', 'success');
                 } else if (data.result) {
                     // Try to show results even if structure is different
+                    console.log('Attempting to show results with different structure');
                     showResults(data.result);
                     showToast('✅ Processing completed successfully!', 'success');
                 } else {
-                    showToast('✅ Processing completed successfully! Results may be available shortly.', 'success');
-                    // Keep polling a bit more in case results are delayed
+                    showToast('✅ Processing completed successfully! Fetching results...', 'success');
+                    // Retry once more after a short delay
                     setTimeout(() => {
                         checkStatus(datasetId);
                     }, 2000);
@@ -325,9 +330,12 @@ async function checkStatus(datasetId) {
             loadJobsList();
             updateStats();
         } else {
-            // Still processing - show indicator
-            if (data.status === 'PROCESSING' || data.status === 'PENDING') {
+            // Still processing - show indicator only if no results yet
+            if ((data.status === 'PROCESSING' || data.status === 'PENDING') && !hasResults) {
                 document.getElementById('processingIndicator').style.display = 'block';
+            } else if (hasResults) {
+                // We have results, hide processing indicator
+                document.getElementById('processingIndicator').style.display = 'none';
             }
         }
     } catch (error) {
