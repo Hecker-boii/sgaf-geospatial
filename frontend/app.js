@@ -166,22 +166,50 @@ function readFileAsBase64(file) {
     });
 }
 
-// Status polling
+// Status polling - optimized for faster updates
+let fastPollInterval = null;
+
 function startStatusPolling(datasetId) {
+    // Clear any existing intervals
     if (statusCheckInterval) {
         clearInterval(statusCheckInterval);
+        statusCheckInterval = null;
+    }
+    if (fastPollInterval) {
+        clearInterval(fastPollInterval);
+        fastPollInterval = null;
     }
 
+    // Check immediately
     checkStatus(datasetId);
 
-    statusCheckInterval = setInterval(() => {
+    // Fast polling for first 30 seconds (every 1 second)
+    let fastPollCount = 0;
+    fastPollInterval = setInterval(() => {
+        fastPollCount++;
         checkStatus(datasetId);
-    }, 3000);
+        
+        // After 30 seconds, switch to slower polling
+        if (fastPollCount >= 30) {
+            if (fastPollInterval) {
+                clearInterval(fastPollInterval);
+                fastPollInterval = null;
+            }
+            statusCheckInterval = setInterval(() => {
+                checkStatus(datasetId);
+            }, 3000);
+        }
+    }, 1000);
 }
 
 async function checkStatus(datasetId) {
     try {
-        const response = await fetch(`${API_URL}status/${datasetId}`);
+        const response = await fetch(`${API_URL}status/${datasetId}`, {
+            cache: 'no-cache',
+            headers: {
+                'Cache-Control': 'no-cache'
+            }
+        });
         if (!response.ok) {
             throw new Error('Failed to fetch status');
         }
@@ -189,16 +217,30 @@ async function checkStatus(datasetId) {
         const data = await response.json();
         updateStatusDisplay(data);
 
+        // Show results immediately when available, even if status is still PROCESSING
+        if (data.result && data.result.summary) {
+            document.getElementById('processingIndicator').style.display = 'none';
+            showResults(data.result);
+            showToast('Results available!', 'success');
+        }
+
         if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+            // Clear all intervals
             if (statusCheckInterval) {
                 clearInterval(statusCheckInterval);
                 statusCheckInterval = null;
+            }
+            if (fastPollInterval) {
+                clearInterval(fastPollInterval);
+                fastPollInterval = null;
             }
 
             document.getElementById('processingIndicator').style.display = 'none';
 
             if (data.status === 'COMPLETED') {
-                showToast('Processing completed successfully!', 'success');
+                if (!data.result || !data.result.summary) {
+                    showToast('Processing completed successfully!', 'success');
+                }
                 if (data.result) {
                     showResults(data.result);
                 }
@@ -228,10 +270,23 @@ function showResults(result) {
     const resultsSection = document.getElementById('resultsSection');
     const resultsDiv = document.getElementById('results');
     
+    // Show immediately without waiting
     resultsSection.style.display = 'block';
-    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    
+    // Scroll smoothly after a brief delay to ensure content is rendered
+    setTimeout(() => {
+        resultsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 100);
 
-    const summary = result.summary || result;
+    // Handle both nested and flat result structures
+    let summary = result;
+    if (result.summary) {
+        summary = result.summary;
+    }
+    // If summary itself has a summary (nested), unwrap it
+    if (summary && summary.summary) {
+        summary = summary.summary;
+    }
     
     let html = '<div class="results-grid">';
     

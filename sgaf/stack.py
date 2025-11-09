@@ -317,12 +317,29 @@ class SgafStack(Stack):
             dead_letter_queue=dlq,  # Use DLQ for failed invocations
         )
         
+        # Format SNS Lambda: Formats detailed notification messages
+        format_sns_fn = _lambda.Function(self, "FormatSnsFn",
+            code=_lambda.Code.from_asset("lambda/format_sns"),
+            handler="app.handler",
+            runtime=_lambda.Runtime.PYTHON_3_12,
+            memory_size=128,
+            timeout=Duration.seconds(10),
+            environment={
+                "OUTPUT_BUCKET": output_bucket.bucket_name,
+            },
+            log_retention=logs.RetentionDays.THREE_DAYS,
+            tracing=tracing,
+        )
+        
         # Grant permissions for Secrets Manager and SSM
         email_secret.grant_read(ingest_fn)
         config_parameter.grant_read(ingest_fn)
         input_bucket.grant_read(ingest_fn)
         jobs_table.grant_read_data(ingest_fn)
         jobs_table.grant_write_data(ingest_fn)
+        
+        # Grant permissions for format_sns
+        output_bucket.grant_read(format_sns_fn)
 
         # ============================================================================
         # SERVICE 6: Step Functions - Workflow Orchestration
@@ -352,43 +369,50 @@ class SgafStack(Stack):
             payload_response_only=True,
         )
 
-        # SNS Success notification - use summary if available, otherwise use datasetId
+        # Format SNS message task (Service 9: Lambda for message formatting)
+        format_sns_task = tasks.LambdaInvoke(self, "FormatSnsMessage",
+            lambda_function=format_sns_fn,
+            payload_response_only=True,
+        )
+
+        # SNS Success notification (Service 4: SNS)
         notify_success = tasks.SnsPublish(self, "NotifySuccess",
             topic=success_topic,
-            subject=sfn.JsonPath.format(
-                "SGAF Success: {}",
-                sfn.JsonPath.string_at("$.summary.datasetId")
-            ),
-            message=sfn.TaskInput.from_object({
-                "text": "Dataset processed successfully.",
-                "datasetId": sfn.JsonPath.string_at("$.summary.datasetId"),
-                "ok": sfn.JsonPath.string_at("$.summary.ok"),
-                "pointCount": sfn.JsonPath.string_at("$.summary.pointCount"),
-                "polygonCount": sfn.JsonPath.string_at("$.summary.polygonCount"),
-                "polygonArea": sfn.JsonPath.string_at("$.summary.polygonArea"),
-                "manifestKey": sfn.JsonPath.format(
-                    "{}/manifest.json",
-                    sfn.JsonPath.string_at("$.summary.datasetId")
-                )
-            }),
+            subject=sfn.JsonPath.string_at("$.subject"),
+            message=sfn.TaskInput.from_text(sfn.JsonPath.string_at("$.message")),
         )
 
-        # SNS Failure notification
+        # Format failure message task
+        format_failure_task = tasks.LambdaInvoke(self, "FormatFailureMessage",
+            lambda_function=format_sns_fn,
+            payload_response_only=True,
+        )
+
+        # SNS Failure notification (Service 4: SNS)
         notify_failure = tasks.SnsPublish(self, "NotifyFailure",
             topic=failure_topic,
-            message=sfn.TaskInput.from_json_path_at("$"),
+            subject=sfn.JsonPath.string_at("$.subject"),
+            message=sfn.TaskInput.from_text(sfn.JsonPath.string_at("$.message")),
         )
 
-        # Error handling
-        map_state.add_catch(notify_failure, result_path="$.error")
-        aggregate_task.add_catch(notify_failure, result_path="$.error")
-        update_dynamodb_task.add_catch(notify_failure, result_path="$.error")
+        # Error handling with formatted messages
+        failure_chain = format_failure_task.next(notify_failure)
+        map_state.add_catch(failure_chain, result_path="$.error")
+        aggregate_task.add_catch(failure_chain, result_path="$.error")
+        update_dynamodb_task.add_catch(failure_chain, result_path="$.error")
+        format_sns_task.add_catch(failure_chain, result_path="$.error")
 
-        # Workflow definition: Map -> Aggregate -> Update DynamoDB -> Notify
+        # Workflow definition showing all services:
+        # 1. S3 (trigger) -> 2. Lambda (Ingest) -> 3. Step Functions (orchestration)
+        # 4. Lambda (Process) -> 5. Lambda (Aggregate) -> 6. DynamoDB (Update)
+        # 7. Lambda (Format SNS) -> 8. SNS (Notify) -> 9. CloudWatch (Metrics)
+        # 10. EventBridge (Monitoring) -> 11. X-Ray (Tracing) -> 12. SQS (DLQ)
+        # 13. Secrets Manager (Config) -> 14. SSM (Parameters)
         definition = (
             map_state
             .next(aggregate_task)
             .next(update_dynamodb_task)
+            .next(format_sns_task)
             .next(notify_success)
         )
 

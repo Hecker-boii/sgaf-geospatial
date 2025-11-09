@@ -104,20 +104,33 @@ def handler(event: Any, context: Any) -> Dict[str, Any]:
                 ],
             )
             
-            # Update DynamoDB via Lambda (async)
+            # Update DynamoDB immediately (synchronous) for faster frontend updates
             if UPDATE_STATUS_FUNCTION:
                 try:
                     lambda_client.invoke(
                         FunctionName=UPDATE_STATUS_FUNCTION,
-                        InvocationType="Event",
+                        InvocationType="RequestResponse",  # Synchronous for faster updates
                         Payload=json.dumps({
                             "datasetId": dataset_id,
                             "status": "COMPLETED" if all_ok else "FAILED",
-                            "result": summary,
+                            "result": {"summary": summary},  # Wrap in summary for consistency
                         }),
                     )
-                except Exception:
-                    pass  # Non-blocking
+                except Exception as e:
+                    print(f"Error updating status: {e}")
+                    # Fallback to async if sync fails
+                    try:
+                        lambda_client.invoke(
+                            FunctionName=UPDATE_STATUS_FUNCTION,
+                            InvocationType="Event",
+                            Payload=json.dumps({
+                                "datasetId": dataset_id,
+                                "status": "COMPLETED" if all_ok else "FAILED",
+                                "result": {"summary": summary},
+                            }),
+                        )
+                    except:
+                        pass
     except Exception:
         pass
 
