@@ -403,13 +403,25 @@ function showResults(result) {
         if (typeof summary.otherCount === 'string') {
             summary.otherCount = parseInt(summary.otherCount) || 0;
         }
-        // Handle bbox array
+        // Handle bbox array (convert strings to numbers)
         if (summary.bbox && Array.isArray(summary.bbox)) {
-            summary.bbox = summary.bbox.map(v => typeof v === 'string' ? parseFloat(v) : v);
+            summary.bbox = summary.bbox.map(v => {
+                if (typeof v === 'string') {
+                    const num = parseFloat(v);
+                    return isNaN(num) ? v : num;
+                }
+                return v;
+            });
         }
-        // Handle centroid array
+        // Handle centroid array (convert strings to numbers)
         if (summary.pointCentroid && Array.isArray(summary.pointCentroid)) {
-            summary.pointCentroid = summary.pointCentroid.map(v => typeof v === 'string' ? parseFloat(v) : v);
+            summary.pointCentroid = summary.pointCentroid.map(v => {
+                if (typeof v === 'string') {
+                    const num = parseFloat(v);
+                    return isNaN(num) ? v : num;
+                }
+                return v;
+            });
         }
     }
     
@@ -472,11 +484,17 @@ function showResults(result) {
     
     // Bounding Box
     if (summary.bbox && Array.isArray(summary.bbox) && summary.bbox.length === 4) {
-        const bbox = summary.bbox.map(v => typeof v === 'string' ? parseFloat(v) : v);
+        const bbox = summary.bbox.map(v => {
+            if (typeof v === 'string') {
+                const num = parseFloat(v);
+                return isNaN(num) ? v : num;
+            }
+            return v;
+        });
         html += `
             <div class="result-card">
                 <h3>📦 Bounding Box</h3>
-                <div class="value">[${bbox.map(v => v.toFixed(4)).join(', ')}]</div>
+                <div class="value">[${bbox.map(v => (typeof v === 'number' ? v.toFixed(4) : v)).join(', ')}]</div>
                 <div class="label">[minX, minY, maxX, maxY]</div>
             </div>
         `;
@@ -484,11 +502,17 @@ function showResults(result) {
     
     // Centroid
     if (summary.pointCentroid && Array.isArray(summary.pointCentroid) && summary.pointCentroid.length >= 2) {
-        const centroid = summary.pointCentroid.map(v => typeof v === 'string' ? parseFloat(v) : v);
+        const centroid = summary.pointCentroid.map(v => {
+            if (typeof v === 'string') {
+                const num = parseFloat(v);
+                return isNaN(num) ? v : num;
+            }
+            return v;
+        });
         html += `
             <div class="result-card">
                 <h3>🎯 Centroid</h3>
-                <div class="value">[${centroid.map(v => v.toFixed(4)).join(', ')}]</div>
+                <div class="value">[${centroid.map(v => (typeof v === 'number' ? v.toFixed(4) : v)).join(', ')}]</div>
                 <div class="label">Point centroid coordinates</div>
             </div>
         `;
