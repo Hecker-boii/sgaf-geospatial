@@ -207,7 +207,8 @@ async function checkStatus(datasetId) {
         const response = await fetch(`${API_URL}status/${datasetId}`, {
             cache: 'no-cache',
             headers: {
-                'Cache-Control': 'no-cache'
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             }
         });
         if (!response.ok) {
@@ -215,17 +216,40 @@ async function checkStatus(datasetId) {
         }
 
         const data = await response.json();
+        console.log('Status check response:', data); // Debug log
+        
+        // Update status display immediately
         updateStatusDisplay(data);
 
-        // Show results immediately when available, even if status is still PROCESSING
-        if (data.result && data.result.summary) {
-            document.getElementById('processingIndicator').style.display = 'none';
-            showResults(data.result);
-            showToast('Results available!', 'success');
+        // Check if we have results (handle multiple nested structures)
+        let hasResults = false;
+        let resultData = null;
+        
+        if (data.result) {
+            // Check if result has summary directly
+            if (data.result.summary) {
+                hasResults = true;
+                resultData = data.result;
+            }
+            // Check if result itself is the summary
+            else if (data.result.pointCount !== undefined || data.result.polygonCount !== undefined) {
+                hasResults = true;
+                resultData = { summary: data.result };
+            }
         }
 
+        // Show results immediately when available
+        if (hasResults && resultData) {
+            document.getElementById('processingIndicator').style.display = 'none';
+            showResults(resultData);
+            if (data.status !== 'COMPLETED') {
+                showToast('Results available! Processing may still be completing...', 'success');
+            }
+        }
+
+        // Handle completion or failure
         if (data.status === 'COMPLETED' || data.status === 'FAILED') {
-            // Clear all intervals
+            // Clear all intervals immediately
             if (statusCheckInterval) {
                 clearInterval(statusCheckInterval);
                 statusCheckInterval = null;
@@ -238,21 +262,39 @@ async function checkStatus(datasetId) {
             document.getElementById('processingIndicator').style.display = 'none';
 
             if (data.status === 'COMPLETED') {
-                if (!data.result || !data.result.summary) {
-                    showToast('Processing completed successfully!', 'success');
-                }
-                if (data.result) {
+                // Show results if we have them
+                if (hasResults && resultData) {
+                    showResults(resultData);
+                    showToast('✅ Processing completed successfully! Results displayed below.', 'success');
+                } else if (data.result) {
+                    // Try to show results even if structure is different
                     showResults(data.result);
+                    showToast('✅ Processing completed successfully!', 'success');
+                } else {
+                    showToast('✅ Processing completed successfully! Results may be available shortly.', 'success');
+                    // Keep polling a bit more in case results are delayed
+                    setTimeout(() => {
+                        checkStatus(datasetId);
+                    }, 2000);
                 }
             } else {
-                showToast('Processing failed. Please check the logs.', 'error');
+                showToast('❌ Processing failed. Please check the logs.', 'error');
+                if (data.error) {
+                    console.error('Error details:', data.error);
+                }
             }
             
             loadJobsList();
             updateStats();
+        } else {
+            // Still processing - show indicator
+            if (data.status === 'PROCESSING' || data.status === 'PENDING') {
+                document.getElementById('processingIndicator').style.display = 'block';
+            }
         }
     } catch (error) {
         console.error('Error checking status:', error);
+        showToast('Error checking status: ' + error.message, 'error');
     }
 }
 
@@ -273,14 +315,9 @@ function showResults(result) {
     // Show immediately without waiting
     resultsSection.style.display = 'block';
     
-    // Scroll smoothly after a brief delay to ensure content is rendered
-    setTimeout(() => {
-        resultsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 100);
-
     // Handle both nested and flat result structures
     let summary = result;
-    if (result.summary) {
+    if (result && result.summary) {
         summary = result.summary;
     }
     // If summary itself has a summary (nested), unwrap it
@@ -288,54 +325,119 @@ function showResults(result) {
         summary = summary.summary;
     }
     
+    // Handle DynamoDB string format (floats stored as strings)
+    if (summary) {
+        // Convert string numbers back to numbers for display
+        if (typeof summary.pointCount === 'string') {
+            summary.pointCount = parseInt(summary.pointCount) || 0;
+        }
+        if (typeof summary.polygonCount === 'string') {
+            summary.polygonCount = parseInt(summary.polygonCount) || 0;
+        }
+        if (typeof summary.polygonArea === 'string') {
+            summary.polygonArea = parseFloat(summary.polygonArea) || 0;
+        }
+        if (typeof summary.otherCount === 'string') {
+            summary.otherCount = parseInt(summary.otherCount) || 0;
+        }
+        // Handle bbox array
+        if (summary.bbox && Array.isArray(summary.bbox)) {
+            summary.bbox = summary.bbox.map(v => typeof v === 'string' ? parseFloat(v) : v);
+        }
+        // Handle centroid array
+        if (summary.pointCentroid && Array.isArray(summary.pointCentroid)) {
+            summary.pointCentroid = summary.pointCentroid.map(v => typeof v === 'string' ? parseFloat(v) : v);
+        }
+    }
+    
+    // Scroll smoothly after a brief delay to ensure content is rendered
+    setTimeout(() => {
+        resultsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 100);
+    
+    // Check if we have valid summary data
+    if (!summary || (typeof summary !== 'object')) {
+        resultsDiv.innerHTML = '<div class="loading-state"><p>No results data available yet. Please wait...</p></div>';
+        return;
+    }
+    
     let html = '<div class="results-grid">';
     
-    if (summary.pointCount !== undefined) {
-        html += `
-            <div class="result-card">
-                <h3>📍 Points</h3>
-                <div class="value">${summary.pointCount}</div>
-                <div class="label">Total point features</div>
-            </div>
-        `;
-    }
+    // Point Count
+    const pointCount = summary.pointCount !== undefined ? (typeof summary.pointCount === 'string' ? parseInt(summary.pointCount) : summary.pointCount) : 0;
+    html += `
+        <div class="result-card">
+            <h3>📍 Points</h3>
+            <div class="value">${pointCount.toLocaleString()}</div>
+            <div class="label">Total point features</div>
+        </div>
+    `;
     
-    if (summary.polygonCount !== undefined) {
-        html += `
-            <div class="result-card">
-                <h3>🔷 Polygons</h3>
-                <div class="value">${summary.polygonCount}</div>
-                <div class="label">Total polygon features</div>
-            </div>
-        `;
-    }
+    // Polygon Count
+    const polygonCount = summary.polygonCount !== undefined ? (typeof summary.polygonCount === 'string' ? parseInt(summary.polygonCount) : summary.polygonCount) : 0;
+    html += `
+        <div class="result-card">
+            <h3>🔷 Polygons</h3>
+            <div class="value">${polygonCount.toLocaleString()}</div>
+            <div class="label">Total polygon features</div>
+        </div>
+    `;
     
+    // Polygon Area
     if (summary.polygonArea !== undefined) {
+        const area = typeof summary.polygonArea === 'string' ? parseFloat(summary.polygonArea) : summary.polygonArea;
         html += `
             <div class="result-card">
                 <h3>📐 Area</h3>
-                <div class="value">${summary.polygonArea.toFixed(6)}</div>
-                <div class="label">Total polygon area</div>
+                <div class="value">${area.toFixed(6)}</div>
+                <div class="label">Total polygon area (square units)</div>
             </div>
         `;
     }
     
-    if (summary.bbox) {
+    // Other Count
+    if (summary.otherCount !== undefined) {
+        const otherCount = typeof summary.otherCount === 'string' ? parseInt(summary.otherCount) : summary.otherCount;
+        html += `
+            <div class="result-card">
+                <h3>📊 Other Features</h3>
+                <div class="value">${otherCount.toLocaleString()}</div>
+                <div class="label">Other feature types</div>
+            </div>
+        `;
+    }
+    
+    // Bounding Box
+    if (summary.bbox && Array.isArray(summary.bbox) && summary.bbox.length === 4) {
+        const bbox = summary.bbox.map(v => typeof v === 'string' ? parseFloat(v) : v);
         html += `
             <div class="result-card">
                 <h3>📦 Bounding Box</h3>
-                <div class="value">[${summary.bbox.map(v => v.toFixed(4)).join(', ')}]</div>
+                <div class="value">[${bbox.map(v => v.toFixed(4)).join(', ')}]</div>
                 <div class="label">[minX, minY, maxX, maxY]</div>
             </div>
         `;
     }
     
-    if (summary.pointCentroid) {
+    // Centroid
+    if (summary.pointCentroid && Array.isArray(summary.pointCentroid) && summary.pointCentroid.length >= 2) {
+        const centroid = summary.pointCentroid.map(v => typeof v === 'string' ? parseFloat(v) : v);
         html += `
             <div class="result-card">
                 <h3>🎯 Centroid</h3>
-                <div class="value">[${summary.pointCentroid.map(v => v.toFixed(4)).join(', ')}]</div>
+                <div class="value">[${centroid.map(v => v.toFixed(4)).join(', ')}]</div>
                 <div class="label">Point centroid coordinates</div>
+            </div>
+        `;
+    }
+    
+    // Processing Status
+    if (summary.ok !== undefined) {
+        html += `
+            <div class="result-card">
+                <h3>✅ Status</h3>
+                <div class="value">${summary.ok ? 'Success' : 'Warning'}</div>
+                <div class="label">Processing status</div>
             </div>
         `;
     }
