@@ -261,6 +261,11 @@ async function checkStatus(datasetId) {
         const data = await response.json();
         console.log('Status check response:', JSON.stringify(data, null, 2)); // Debug log
         
+        // CRITICAL: If status is COMPLETED, force update immediately
+        if (data.status === 'COMPLETED') {
+            console.log('✅ Status is COMPLETED - processing is done!');
+        }
+        
         // Update status display immediately
         updateStatusDisplay(data);
 
@@ -334,25 +339,34 @@ async function checkStatus(datasetId) {
         const isCompleted = data.status === 'COMPLETED' || data.status === 'FAILED';
         const hasAnyResults = hasResults || (data.result && Object.keys(data.result).length > 0);
         
-        // If we have results, always show them (even if status says PROCESSING)
-        if (hasAnyResults) {
+        // ALWAYS hide processing indicator if status is COMPLETED
+        if (isCompleted) {
+            document.getElementById('processingIndicator').style.display = 'none';
+            console.log('✅ Processing complete - hiding indicator');
+        }
+        
+        // If we have results OR status is COMPLETED, show results
+        if (hasAnyResults || isCompleted) {
             document.getElementById('processingIndicator').style.display = 'none';
             
             // Show results with whatever data we have
             if (hasResults && resultData) {
+                console.log('Showing results with detected structure');
                 showResults(resultData);
             } else if (data.result) {
                 // Try to show results even if structure detection failed
-                console.log('Showing results with detected structure');
+                console.log('Showing results with available data');
                 showResults(data.result);
+            } else if (isCompleted) {
+                // Status is COMPLETED but no results yet - retry
+                console.log('Status COMPLETED but no results - will retry');
             }
             
-            // If status is COMPLETED, we're done
-            if (isCompleted) {
+            // If status is COMPLETED, show success message
+            if (isCompleted && hasAnyResults) {
                 showToast('✅ Processing completed! Results displayed below.', 'success');
-            } else {
-                // Results available but still processing
-                console.log('Results available, but status still processing');
+            } else if (isCompleted && !hasAnyResults) {
+                showToast('✅ Processing completed! Fetching results...', 'success');
             }
         }
 
