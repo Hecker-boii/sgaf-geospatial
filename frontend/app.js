@@ -107,13 +107,16 @@ async function handleUpload() {
     try {
         const datasetId = `demo-${Date.now()}`;
         currentDatasetId = datasetId;
+        
+        // Store upload start time for display
+        const uploadStartTime = new Date();
 
         const fileContent = await readFileAsBase64(file);
         
         progressFill.style.width = '95%';
         progressText.textContent = 'Processing...';
 
-        const response = await fetch(`${API_URL}upload`, {
+        const response = await fetch(getApiUrl('/upload'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -137,16 +140,35 @@ async function handleUpload() {
 
         const data = await response.json();
         
+        // Calculate upload duration
+        const uploadEndTime = new Date();
+        const uploadDuration = ((uploadEndTime - uploadStartTime) / 1000).toFixed(2);
+        
         setTimeout(() => {
             uploadProgress.style.display = 'none';
             progressFill.style.width = '0%';
         }, 1000);
 
-        showToast(`Upload successful! Processing started.`, 'success');
+        showToast(`✅ Upload successful! Processing started. (${uploadDuration}s)`, 'success');
         
         document.getElementById('statusSection').style.display = 'block';
         document.getElementById('datasetId').textContent = datasetId;
         document.getElementById('processingIndicator').style.display = 'block';
+        
+        // Set created time to upload time (properly formatted)
+        const createdAtEl = document.getElementById('createdAt');
+        if (createdAtEl) {
+            createdAtEl.textContent = uploadStartTime.toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZoneName: 'short'
+            });
+        }
+        
         startStatusPolling(datasetId);
         
         loadJobsList();
