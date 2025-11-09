@@ -330,8 +330,34 @@ async function checkStatus(datasetId) {
             console.log('Results displayed successfully');
         }
 
+        // CRITICAL: Check for completion - if we have results OR status is COMPLETED, show results
+        const isCompleted = data.status === 'COMPLETED' || data.status === 'FAILED';
+        const hasAnyResults = hasResults || (data.result && Object.keys(data.result).length > 0);
+        
+        // If we have results, always show them (even if status says PROCESSING)
+        if (hasAnyResults) {
+            document.getElementById('processingIndicator').style.display = 'none';
+            
+            // Show results with whatever data we have
+            if (hasResults && resultData) {
+                showResults(resultData);
+            } else if (data.result) {
+                // Try to show results even if structure detection failed
+                console.log('Showing results with detected structure');
+                showResults(data.result);
+            }
+            
+            // If status is COMPLETED, we're done
+            if (isCompleted) {
+                showToast('✅ Processing completed! Results displayed below.', 'success');
+            } else {
+                // Results available but still processing
+                console.log('Results available, but status still processing');
+            }
+        }
+
         // Handle completion or failure
-        if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+        if (isCompleted) {
             console.log('Status is COMPLETED or FAILED, stopping polling');
             
             // Clear all intervals immediately
@@ -347,21 +373,29 @@ async function checkStatus(datasetId) {
             document.getElementById('processingIndicator').style.display = 'none';
 
             if (data.status === 'COMPLETED') {
-                // Always try to show results when completed
-                if (hasResults && resultData) {
-                    showResults(resultData);
-                    showToast('✅ Processing completed successfully! Results displayed below.', 'success');
-                } else if (data.result) {
-                    // Try to show results even if structure is different
-                    console.log('Attempting to show results with different structure');
+                // Force show results if we have any data
+                if (!hasAnyResults && data.result) {
+                    console.log('Forcing result display on completion');
                     showResults(data.result);
-                    showToast('✅ Processing completed successfully!', 'success');
-                } else {
-                    showToast('✅ Processing completed successfully! Fetching results...', 'success');
-                    // Retry once more after a short delay
-                    setTimeout(() => {
-                        checkStatus(datasetId);
+                }
+                
+                if (!hasAnyResults) {
+                    // No results yet, retry a few times
+                    let retryCount = 0;
+                    const maxRetries = 5;
+                    const retryInterval = setInterval(() => {
+                        retryCount++;
+                        console.log(`Retrying to fetch results (${retryCount}/${maxRetries})`);
+                        checkStatus(datasetId).then(() => {
+                            if (retryCount >= maxRetries) {
+                                clearInterval(retryInterval);
+                            }
+                        });
                     }, 2000);
+                    
+                    setTimeout(() => {
+                        clearInterval(retryInterval);
+                    }, maxRetries * 2000);
                 }
             } else {
                 showToast('❌ Processing failed. Please check the logs.', 'error');
@@ -374,9 +408,9 @@ async function checkStatus(datasetId) {
             updateStats();
         } else {
             // Still processing - show indicator only if no results yet
-            if ((data.status === 'PROCESSING' || data.status === 'PENDING') && !hasResults) {
+            if ((data.status === 'PROCESSING' || data.status === 'PENDING') && !hasAnyResults) {
                 document.getElementById('processingIndicator').style.display = 'block';
-            } else if (hasResults) {
+            } else if (hasAnyResults) {
                 // We have results, hide processing indicator
                 document.getElementById('processingIndicator').style.display = 'none';
             }
@@ -457,11 +491,35 @@ function showResults(result) {
     // Show immediately without waiting
     resultsSection.style.display = 'block';
     
-    // Handle both nested and flat result structures
-    let summary = result;
-    if (result && result.summary) {
-        summary = result.summary;
+    console.log('showResults called with:', JSON.stringify(result, null, 2));
+    
+    // Handle both nested and flat result structures - be more aggressive
+    let summary = null;
+    
+    // Try multiple ways to find the summary
+    if (result) {
+        if (result.summary) {
+            summary = result.summary;
+        } else if (result.pointCount !== undefined || result.polygonCount !== undefined) {
+            // Result itself is the summary
+            summary = result;
+        } else if (typeof result === 'object' && Object.keys(result).length > 0) {
+            // Try to find summary in nested structure
+            for (const key of Object.keys(result)) {
+                if (result[key] && typeof result[key] === 'object') {
+                    if (result[key].pointCount !== undefined || result[key].polygonCount !== undefined) {
+                        summary = result[key];
+                        break;
+                    }
+                }
+            }
+            // If still no summary, use the whole result
+            if (!summary) {
+                summary = result;
+            }
+        }
     }
+    
     // If summary itself has a summary (nested), unwrap it
     if (summary && summary.summary) {
         summary = summary.summary;
@@ -511,9 +569,31 @@ function showResults(result) {
     
     // Check if we have valid summary data
     if (!summary || (typeof summary !== 'object')) {
-        resultsDiv.innerHTML = '<div class="loading-state"><p>No results data available yet. Please wait...</p></div>';
+        console.warn('No valid summary data found, showing raw result');
+        // Show raw result data if available
+        if (result && typeof result === 'object') {
+            resultsDiv.innerHTML = `
+                <div class="results-grid">
+                    <div class="result-card">
+                        <h3>📊 Raw Results</h3>
+                        <div class="value">Data Available</div>
+                        <div class="label">Processing completed</div>
+                    </div>
+                </div>
+                <details style="margin-top: 25px;">
+                    <summary style="cursor: pointer; font-weight: 600; padding: 15px; background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%); border-radius: 10px;">
+                        📄 View Raw JSON Data
+                    </summary>
+                    <pre style="background: #f5f5f5; padding: 15px; border-radius: 8px; overflow-x: auto; margin-top: 10px;">${JSON.stringify(result, null, 2)}</pre>
+                </details>
+            `;
+        } else {
+            resultsDiv.innerHTML = '<div class="loading-state"><p>No results data available yet. Please wait...</p></div>';
+        }
         return;
     }
+    
+    console.log('Displaying summary:', JSON.stringify(summary, null, 2));
     
     let html = '<div class="results-grid">';
     
